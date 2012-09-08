@@ -36,7 +36,6 @@ class RbStory < Issue
       pbl_condition = ["
         (#{Project.find(project_id).project_condition(true)})
         and tracker_id in (?)
-        and fixed_version_id is NULL
         and is_closed = ?", RbStory.trackers, false]
       sprint_condition = ["
         tracker_id in (?)
@@ -45,12 +44,22 @@ class RbStory < Issue
       pbl_condition = ["
         project_id = ?
         and tracker_id in (?)
-        and fixed_version_id is NULL
         and is_closed = ?", project_id, RbStory.trackers, false]
       sprint_condition = ["
         project_id = ?
         and tracker_id in (?)
         and fixed_version_id IN (?)", project_id, RbStory.trackers, sprint_ids]
+    end
+
+    backlog_version_ids = RbStory.backlog_versions
+    if backlog_version_ids.include?(0) && backlog_version_ids.size > 1
+      pbl_condition.first << " AND (fixed_version_id IS NULL OR fixed_version_id IN (?))"
+      pbl_condition << (backlog_version_ids - [0])
+    elsif backlog_version_ids.include?(0)
+      pbl_condition.first << " AND fixed_version_id IS NULL"
+    else
+      pbl_condition.first << " AND fixed_version_id IN (?)"
+      pbl_condition << backlog_version_ids
     end
 
     if sprint_ids.nil?
@@ -159,6 +168,47 @@ class RbStory < Issue
         when :string      then return trackers.collect{|t| t.id.to_s}.join(',')
         else                   raise "Unexpected return type #{options[:type].inspect}"
     end
+  end
+
+  # returns a struct that acts like a version for the purposes of
+  # including and excluding versions from the backlog
+  def self.nil_version
+    Struct.new("NilVersion", :id, :name) unless defined?(Struct::NilVersion)
+    Struct::NilVersion.new(0, '(No Version)')
+  end
+
+  # the candidate versions for selection to include or exclude from the backlog
+  # TODO: make per project
+  def self.backlog_version_candidates
+    [nil_version] + Version.open.to_a
+  end
+
+  # selected version ids to be included in backlog
+  # note: will include a 0 (zero) if "stories with no version" are selected for backlog (which is the default)
+  # TODO: make per project
+  def self.backlog_versions
+    default = ['0']
+    config = default
+    if has_settings_table
+      config = Backlogs.setting[:backlog_versions]
+      config = default if config.blank?
+    end
+
+    # make sure 0 is on the front
+    version_ids = config.collect(&:to_i).select{|id| id != 0}
+    version_ids.unshift(0) if config.include?("0")
+    version_ids
+  end
+
+  # version ids to be globally excluded from sprints etc
+  def self.ignored_versions
+    default = []
+    config = default
+    if has_settings_table
+      config = Backlogs.setting[:ignored_versions]
+      config = default if config.blank?
+    end
+    config.collect(&:to_i)
   end
 
   def self.has_settings_table

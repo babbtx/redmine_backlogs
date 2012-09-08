@@ -100,25 +100,41 @@ class RbSprint < Version
     end
   end
 
-  rb_scope :open_sprints, lambda { |project|
-    {
+  # +options+ can include:
+  #
+  #  :status      sprint status (String or Array) [open]
+  #  :project_id  only version associated with this project [no default]
+  #
+  def self.find_options(options = {})
+    status = options.delete(:status) || 'open'
+    status = Array(status)
+    conditions = ['versions.status in (?)', status.collect(&:to_s)]
+    if options.include?(:project_id)
+      conditions.first << ' and versions.project_id = ?'
+      conditions << options[:project_id]
+    end
+    ignored_version_ids = RbStory.ignored_versions + RbStory.backlog_versions - [0]
+    unless ignored_version_ids.empty?
+      conditions.first << " and versions.id not in (?)"
+      conditions << ignored_version_ids
+    end
+
+    { 
       :order => "CASE sprint_start_date WHEN NULL THEN 1 ELSE 0 END ASC,
-                 sprint_start_date ASC,
-                 CASE effective_date WHEN NULL THEN 1 ELSE 0 END ASC,
-                 effective_date ASC",
-      :conditions => [ "status = 'open' and project_id = ?", project.id ] #FIXME locked, too?
+                sprint_start_date ASC,
+                CASE effective_date WHEN NULL THEN 1 ELSE 0 END ASC,
+                effective_date ASC",
+      :conditions => conditions
     }
+  end
+
+  rb_scope :open_sprints, lambda { |project|
+    find_options(:project_id => project.id, :status => 'open')  #FIXME locked, too?
   }
 
   #TIB ajout du scope :closed_sprints
   rb_scope :closed_sprints, lambda { |project|
-    {
-      :order => "CASE sprint_start_date WHEN NULL THEN 1 ELSE 0 END ASC,
-                 sprint_start_date ASC,
-                 CASE effective_date WHEN NULL THEN 1 ELSE 0 END ASC,
-                 effective_date ASC",
-      :conditions => [ "status = 'closed' and project_id = ?", project.id ]
-    }
+    find_options(:project_id => project.id, :status => 'closed')
   }
 
   #depending on sharing mode
