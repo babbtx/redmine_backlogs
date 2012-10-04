@@ -189,13 +189,13 @@ module BacklogsPlugin
       def view_my_account(context={ })
         begin
           return %{
+            </fieldset>
+            <fieldset class="box tabular">
             <h3>#{l(:label_backlogs)}</h3>
-            <div class="box tabular">
             <p>
               #{label :backlogs, :task_color}
               #{text_field :backlogs, :task_color, :value => context[:user].backlogs_preference[:task_color]}
             </p>
-            </div>
           }
         rescue => e
           exception(context, e)
@@ -315,6 +315,11 @@ module BacklogsPlugin
             end
           end
         end
+      end
+
+      def helper_projects_settings_tabs(context={})
+        project = context[:project]
+        context[:tabs] << {:name => 'backlogs', :action => :manage_project_backlogs, :partial => 'backlogs/project_settings', :label => :label_backlogs} if project.module_enabled?('backlogs') and User.current.allowed_to?(:configure_backlogs, nil, :global=>true)
       end
 
     end

@@ -11,13 +11,16 @@ module Backlogs
         :conditions => ["project_id = ? and not(effective_date is null or sprint_start_date is null) and effective_date < ?", @project.id, Date.today],
         :order => "effective_date desc",
         :limit => 5).select(&:has_burndown?)
-
-      @points_per_day = @past_sprints.collect{|s| s.burndown('up')[:points_committed][0]}.compact.sum / @past_sprints.collect{|s| s.days(:all).size}.compact.sum if @past_sprints.size > 0
-
       @all_sprints = (@past_sprints + [@active_sprint]).compact
 
+      @all_sprints.each{|sprint| sprint.burndown.direction = :up }
+      days = @past_sprints.collect{|s| s.days.size}.sum
+      if days != 0
+        @points_per_day = @past_sprints.collect{|s| s.burndown.data[:points_committed][0]}.compact.sum / days
+      end
+
       if @all_sprints.size != 0
-        @velocity = @past_sprints.collect{|sprint| sprint.burndown('up')[:points_accepted][-1]}
+        @velocity = @past_sprints.collect{|sprint| sprint.burndown.data[:points_accepted][-1].to_f}
         @velocity_stddev = stddev(@velocity)
       end
 
@@ -25,13 +28,9 @@ module Backlogs
 
       hours_per_point = []
       @all_sprints.each {|sprint|
-        sprint.stories.each {|story|
-          bd = story.burndown
-          h = bd[:hours][0]
-          p = bd[:points][0]
-          next unless h && p && p != 0
-          hours_per_point << (h / p.to_f)
-        }
+        hours = sprint.burndown.data[:hours_remaining][0].to_f
+        next if hours == 0.0
+        hours_per_point << sprint.burndown.data[:points_committed][0].to_f / hours
       }
       @hours_per_point_stddev = stddev(hours_per_point)
       @hours_per_point = hours_per_point.sum.to_f / hours_per_point.size unless hours_per_point.size == 0
@@ -44,11 +43,7 @@ module Backlogs
       }
       Statistics.stats.sort.each{|m|
         v = send(m.intern)
-        @statistics[:values][m.to_s.gsub(/^stat_/, '')] =
-          v unless
-                   v.nil? ||
-                   (v.respond_to?(:"nan?") && v.nan?) ||
-                   (v.respond_to?(:"infinite?") && v.infinite?)
+        @statistics[:values][m.to_s.gsub(/^stat_/, '')] = v unless v.nil? || (v.respond_to?(:"nan?") && v.nan?) || (v.respond_to?(:"infinite?") && v.infinite?)
       }
 
       if @statistics[:succeeded].size == 0 && @statistics[:failed].size == 0
@@ -116,9 +111,10 @@ module Backlogs
     def test_yield
       accepted = []
       @past_sprints.each {|sprint|
-        bd = sprint.burndown('up')
-        c = bd[:points_committed][-1]
-        a = bd[:points_accepted][-1]
+        bd = sprint.burndown
+        bd.direction = :up
+        c = bd.data[:points_committed][-1]
+        a = bd.data[:points_accepted][-1]
         next unless c && a && c != 0
 
         accepted << [(a * 100.0) / c, 100.0].min
@@ -170,23 +166,24 @@ module Backlogs
 
     module InstanceMethods
 
-      def scrum_statistics(force = false)
-        if force
-          # done this way to the potentially very expensive cache rebuild is done while the old cache may still be served to others
-          stats = Backlogs::Statistics.new(self)
-          Rails.cache.delete("Project(#{self.id}).scrum_statistics")
-          return Rails.cache.fetch("Project(#{self.id}).scrum_statistics", {:expires_in => 4.hours}) { stats }
-        end
+      def scrum_statistics
         ## pretty expensive to compute, so if we're calling this multiple times, return the cached results
-        @scrum_statistics ||= Rails.cache.fetch("Project(#{self.id}).scrum_statistics", {:expires_in => 4.hours}) { Backlogs::Statistics.new(self) }
+        @scrum_statistics ||= Backlogs::Statistics.new(self)
+      end
 
-        return @scrum_statistics
+      def rb_project_settings
+        project_settings = RbProjectSettings.first(:conditions => ["project_id = ?", self.id])
+        unless project_settings
+          project_settings = RbProjectSettings.new( :project_id => self.id)
+          project_settings.save
+        end
+        project_settings
       end
 
       def projects_in_shared_product_backlog
         #sharing off: only the product itself is in the product backlog
         #sharing on: subtree is included in the product backlog
-        if Backlogs.setting[:sharing_enabled]
+        if Backlogs.setting[:sharing_enabled] and self.rb_project_settings.show_stories_from_subprojects
           self.self_and_descendants.active
         else
           [self]

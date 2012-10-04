@@ -32,19 +32,15 @@ class RbStory < Issue
       Backlogs::ActiveRecord.add_condition(options, visible)
     end
 
+    pbl_condition = ["
+      project_id in (#{Project.find(project_id).projects_in_shared_product_backlog.map{|p| p.id}.join(',')})
+      and tracker_id in (?)
+      and is_closed = ?", RbStory.trackers, false]
     if Backlogs.settings[:sharing_enabled]
-      pbl_condition = ["
-        (#{Project.find(project_id).project_condition(true)})
-        and tracker_id in (?)
-        and is_closed = ?", RbStory.trackers, false]
       sprint_condition = ["
         tracker_id in (?)
         and fixed_version_id IN (?)", RbStory.trackers, sprint_ids]
     else
-      pbl_condition = ["
-        project_id = ?
-        and tracker_id in (?)
-        and is_closed = ?", project_id, RbStory.trackers, false]
       sprint_condition = ["
         project_id = ?
         and tracker_id in (?)
@@ -216,7 +212,7 @@ class RbStory < Issue
   end
 
   def tasks
-    return RbTask.tasks_for(self.id)
+    return self.children
   end
 
   def set_points(p)
@@ -264,47 +260,23 @@ class RbStory < Issue
     end
   end
 
-  def burndown(sprint=nil)
-    return nil unless self.is_story?
+  def burndown(sprint = nil, status=nil)
     sprint ||= self.fixed_version.becomes(RbSprint) if self.fixed_version
     return nil if sprint.nil? || !sprint.has_burndown?
 
-    return Rails.cache.fetch("RbIssue(#{self.id}@#{self.updated_on}).burndown(#{sprint.id}@#{sprint.updated_on}-#{[Date.today, sprint.effective_date].min})") {
-      bd = {}
+    bd = {:points_committed => [], :points_accepted => [], :points_resolved => [], :hours_remaining => []}
 
-      if sprint.has_burndown?
-        days = sprint.days(:active)
-
-        series = Backlogs::MergedArray.new
-        series.merge(:in_sprint => history(:fixed_version_id, days).collect{|s| s == sprint.id})
-        series.merge(:points => history(:story_points, days))
-        series.merge(:open => history(:status_open, days))
-        series.merge(:accepted => history(:status_success, days))
-        series.merge(:hours => ([0] * (days.size + 1)))
-
-        tasks.each{|task| series.add(:hours => task.burndown(sprint)) }
-
-        series.each {|datapoint|
-          if datapoint.in_sprint
-            datapoint.hours = 0 unless datapoint.open
-            datapoint.points_accepted = (datapoint.accepted ? datapoint.points : nil)
-            datapoint.points_resolved = (datapoint.accepted || datapoint.hours.to_f == 0.0 ? datapoint.points : nil)
-          else
-            datapoint.nilify
-            datapoint.points_accepted = nil
-            datapoint.points_resolved = nil
-          end
-        }
-
-        # collect points on this sprint
-        bd[:points] = series.series(:points)
-        bd[:points_accepted] = series.series(:points_accepted)
-        bd[:points_resolved] = series.series(:points_resolved)
-        bd[:hours] = series.collect{|datapoint| datapoint.open ? datapoint.hours : nil}
+    self.history.filter(sprint, status).each{|d|
+      if d.nil? || d[:sprint] != sprint.id || d[:tracker] != :story
+        [:points_committed, :points_accepted, :points_resolved, :hours_remaining].each{|k| bd[k] << nil}
+      else
+        bd[:points_committed] << d[:story_points]
+        bd[:points_accepted] << (d[:status_success] ? d[:story_points] : 0)
+        bd[:points_resolved] << (d[:status_success] || d[:hours].to_f == 0.0 ? d[:story_points] : 0)
+        bd[:hours_remaining] << (d[:status_closed] ? 0 : d[:hours])
       end
-
-      bd
     }
+    return bd
   end
 
   def rank

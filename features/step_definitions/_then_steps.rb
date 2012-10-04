@@ -1,5 +1,14 @@
 require 'rubygems'
-require 'timecop'
+
+Then /^the history for (.+) should be:$/ do |subject, table|
+  story = RbStory.find_by_subject(subject)
+  history = story.history.filter(current_sprint)
+  table.hashes.each_with_index do |metrics, i|
+    metrics.each_pair{|k, v|
+      "#{i}, #{k}: #{history[i][k.intern]}".should == "#{i}, #{k}: #{v}"
+    }
+  end
+end
 
 Then /^(.+) should be in the (\d+)(?:st|nd|rd|th) position of the sprint named (.+)$/ do |story_subject, position, sprint_name|
   position = position.to_i
@@ -13,7 +22,7 @@ Then /^I should see (\d+) sprint backlogs$/ do |count|
 end
 
 Then /^I should see the burndown chart$/ do
-  page.should have_css("#burndown_#{@sprint.id.to_s}")
+  page.should have_css("#burndown_#{current_sprint.id.to_s}")
 end
 
 Then /^I should see the burndown chart of sprint (.+)$/ do |sprint_name|
@@ -62,7 +71,7 @@ Then /^show me the list of stories$/ do
 end
 
 Then /^show me the sprint impediments$/ do
-  puts "Impediments for #{@sprint.name}: #{@sprint.impediments.collect{|i| i.subject}.inspect}"
+  puts "Impediments for #{current_sprint.name}: #{current_sprint(:keep).impediments.collect{|i| i.subject}.inspect}"
 end
 
 Then /^show me the projects$/ do
@@ -204,13 +213,11 @@ Then /^(issue|task|story) (.+) should have (.+) set to (.+)$/ do |type, subject,
 end
 
 Then /^the sprint burn(down|up) should be:$/ do |direction, table|
-  bd = nil
-  Timecop.travel((@sprint.effective_date + 1).to_time) do
-    bd = @sprint.burndown(direction)
-  end
+  bd = current_sprint(:keep).burndown
+  bd.direction = direction
+  bd = bd.data
 
-  days = @sprint.days(:all)
-  days = [:first] + days
+  days = current_sprint(:keep).days
 
   table.hashes.each do |metrics|
     day = metrics.delete('day')
@@ -230,13 +237,11 @@ Then /^the sprint burn(down|up) should be:$/ do |direction, table|
 end
 
 Then /^show me the sprint burn(.*)$/ do |direction|
-  bd = nil
-  Timecop.travel((@sprint.effective_date + 1).to_time) do
-    bd = @sprint.burndown(direction)
-  end
+  bd = current_sprint(:keep).burndown
+  bd.direction = direction
+  bd = bd.data
 
-  dates = @sprint.days(:all)
-  dates = [:start] + dates
+  dates = current_sprint(:keep).days
 
   header = ['day'] + bd.series(false).sort{|a, b| a.to_s <=> b.to_s}
 
@@ -246,41 +251,51 @@ Then /^show me the sprint burn(.*)$/ do |direction|
     data << ["#{dates[day]} (#{day})"] + header.reject{|h| h == 'day'}.collect{|k| bd[k][day]}
   end
 
-  show_table("Burndown for #{@sprint.name} (#{@sprint.sprint_start_date} - #{@sprint.effective_date})", header, data)
+  show_table("Burndown for #{current_sprint(:keep).name} (#{current_sprint(:keep).sprint_start_date} - #{current_sprint(:keep).effective_date})", header, data)
 end
 
+Then /^show me the (.+) burndown for story (.+)$/ do |series, subject|
+  story = RbStory.find_by_subject(subject)
+  show_table("Burndown for story #{subject}, created on #{story.created_on}", ['date', 'hours'], current_sprint.days.zip(story.burndown[series.intern]))
+end
 Then /^show me the burndown for task (.+)$/ do |subject|
-  task = RbTask.find_by_subject(subject)
   sprint = task.fixed_version.becomes(RbSprint)
-  Timecop.travel((sprint.effective_date + 1).to_time) do
-    show_table("Burndown for #{subject}, created on #{task.created_on}", ['date', 'hours'], (['start'] + sprint.days(:active)).zip(task.burndown))
-  end
+
+  task = RbTask.find_by_subject(subject)
+  show_table("Burndown for #{subject}, created on #{task.created_on}", ['date', 'hours'], sprint.days.zip(task.burndown))
 end
 
-Then /^show me the (.+) journal for (.+)$/ do |property, subject|
-  issue = Issue.find(:first, :conditions => ['subject = ?', subject.strip])
-  raise "No issue with subject '#{subject}'" unless issue
-  puts "\n"
-  puts "#{issue.subject}(#{issue.id})##{property}, created: #{issue.created_on}"
+Then /^show me the journal for (.+)$/ do |subject|
+  columns = []
+  data = []
+  subject.split(',').each{|s|
+    issue = RbStory.find_by_subject(s.strip)
+    raise "No issue with subject '#{subject}'" unless issue
 
-  days = (issue.created_on.to_date .. Date.today).to_a
-  previous = nil
-  issue.history(property.intern, days).each_with_index {|value, i|
-    next if i != 0 && value == previous
-    previous = value
-    puts "  #{days[i]}: #{value}"
+    columns = (columns + issue.history.history.collect{|d| d.keys}.flatten).uniq
+    data << issue.history.history.collect{|d| d.reject{|k, v| [:origin, :status_id].include?(k)}.merge(:issue => issue.subject)}
+    #puts "\n#{issue.subject}:\n  #{issue.history.history.inspect}\n  #{issue.is_story? ? issue.burndown.inspect : ''}\n"
   }
+  columns = [:issue, :date] + columns.reject{|c| [:issue, :date].include?(c)}.sort{|a, b| a.to_s <=> b.to_s}
+  data.flatten!
+  data.sort!{|a, b| "#{a[:date]}:#{a[:issue]}" <=> "#{b[:date]}:#{b[:issue]}"}
+
+  puts "\n"
+  puts columns.collect{|c| c.to_s}.join("\t")
+
+  data.each{|mutation|
+    puts columns.collect{|c| mutation[c].to_s}.join("\t")
+  }
+  puts "\n"
 end
 
 Then /^show me the story burndown for (.+)$/ do |story|
-  Timecop.travel((@sprint.effective_date + 1).to_time) do
-    story = RbStory.find(:first, :conditions => ['subject = ?', story])
-    bd = story.burndown
-    header = ['day'] + bd.keys.sort{|a, b| a.to_s <=> b.to_s}
-    bd['day'] = ['start'] + @sprint.days(:active)
-    data = bd.transpose.collect{|row| header.collect{|k| row[k]}}
-    show_table("Burndown for story #{story.subject}", header.collect{|h| h.to_s}, data)
-  end
+  story = RbStory.find(:first, :conditions => ['subject = ?', story])
+  bd = story.burndown
+  header = ['day'] + bd.keys.sort{|a, b| a.to_s <=> b.to_s}
+  bd['day'] = current_sprint(:keep).days
+  data = bd.transpose.collect{|row| header.collect{|k| row[k]}}
+  show_table("Burndown for story #{story.subject}", header.collect{|h| h.to_s}, data)
 end
 
 Then /^task (.+) should have a total time spent of (\d+) hours$/ do |subject,value|
@@ -392,6 +407,17 @@ Then /^show me the html content$/ do
   puts page.html
 end
 
+Then /^show_stories_from_subprojects for (.+) should be (true|false)$/ do |project, value|
+  project = Project.find(project)
+  project.should_not be nil
+  setting = project.rb_project_settings.show_stories_from_subprojects
+  if value=="true"
+    setting.should be_true
+  else
+    setting.should_not be_true
+  end
+end
+
 #only with phantomjs driver:
 Then /^show me a screenshot at (.+)$/ do |arg1|
   page.driver.render(arg1, :full=>true)
@@ -403,4 +429,9 @@ end
 
 Then /^open the remote inspector$/ do
   page.driver.debug
+end
+
+Then /^the error message should say "([^"]*)"$/ do |msg|
+  response_msg = page.find(:xpath,"//div[@class='errors']/div")
+  response_msg.text.strip.should == msg
 end

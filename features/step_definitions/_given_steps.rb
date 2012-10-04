@@ -1,6 +1,22 @@
 require 'rubygems'
 require 'timecop'
 
+Before do
+  Timecop.return
+  @projects = nil
+  @sprint = nil
+  @story = nil
+  Backlogs.setting[:include_sat_and_sun] = false
+end
+
+After do |scenario|
+  Timecop.return
+end
+
+Given /^I am admin$/ do
+  login_as_admin
+end
+
 Given /^I am a product owner of the project$/ do
   role = Role.find(:first, :conditions => "name='Manager'")
   role.permissions << :view_master_backlog
@@ -9,6 +25,7 @@ Given /^I am a product owner of the project$/ do
   role.permissions << :view_releases
   role.permissions << :modify_releases
   role.permissions << :view_scrum_statistics
+  role.permissions << :configure_backlogs
   role.save!
   login_as_product_owner
   @projects.each{|project|
@@ -65,15 +82,39 @@ Given /^I am viewing the master backlog$/ do
   verify_request_status(200)
 end
 
+Then /^at ([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})$/ do |time|
+  set_now(time, :msg => "at #{time}")
+end
+Then /^on ([0-9]{4}-[0-9]{2}-[0-9]{2})$/ do |date|
+  set_now(time, :msg => "on #{date}")
+end
+Then /^after (the current )?sprint(.*)$/ do |current, name|
+  raise "Improperly phrased" if (current == '' && name == '') || (current != '' && name != '')
+  sprint = current == '' ? RbSprint.find_by_name(name) : current_sprint
+  set_now(sprint.effective_date + 1, :msg => "after sprint #{sprint.name}")
+end
+
+Given /^the current (time|date) (is|forwards to) (.+)$/ do |what, action, time|
+  reset = case action
+          when 'is' then true
+          when 'forwards to' then false
+          else raise "I don't know how to #{action} time"
+          end
+  set_now(time, :msg => "#{what} #{action} #{time}", :reset => reset)
+end
+
 Given /^I am viewing the burndown for (.+)$/ do |sprint_name|
-  @sprint = RbSprint.find(:first, :conditions => ["name=?", sprint_name])
-  visit url_for(:controller => :rb_burndown_charts, :action => :show, :sprint_id => @sprint.id, :only_path=>true)
+  visit url_for(:controller => :rb_burndown_charts, :action => :show, :sprint_id => current_sprint(sprint_name).id, :only_path=>true)
   verify_request_status(200)
 end
 
 Given /^I am viewing the taskboard for (.+)$/ do |sprint_name|
-  @sprint = RbSprint.find(:first, :conditions => ["name=?", sprint_name])
-  visit url_for(:controller => :rb_taskboards, :action => :show, :sprint_id => @sprint.id, :only_path=>true)
+  visit url_for(:controller => :rb_taskboards, :action => :show, :sprint_id => current_sprint(sprint_name).id, :only_path=>true)
+  verify_request_status(200)
+end
+
+Given /^I am viewing the backlog settings page for project (.*)$/ do |project_name|
+  visit url_for(:controller => :projects, :action => :settings, :id => Project.find(project_name).id, :tab => 'backlogs', :only_path=>true)
   verify_request_status(200)
 end
 
@@ -156,7 +197,6 @@ end
 
 
 Given /^the (.*) project has the backlogs plugin enabled$/ do |project_id|
-  Rails.cache.clear
   @project = get_project(project_id)
   @projects = [] if @projects.nil?
   @projects.push(@project)
@@ -233,9 +273,7 @@ Given /^I have defined the following sprints:$/ do |table|
     status = version.delete('status')
 
     sprint = RbSprint.create! version
-    if status == 'closed'
-      sprint.update_attribute(:status, 'closed')
-    end
+    sprint.update_attribute(:status, 'closed') if status == 'closed'
   end
 end
 
@@ -256,11 +294,14 @@ Given /^I have the following issue statuses available:$/ do |table|
 end
 
 Given /^I have made the following task mutations:$/ do |table|
-  days = @sprint.days(:all).collect{|d| Time.utc(d.year, d.month, d.day)}
-
-  table.hashes.each_with_index do |mutation, no|
-    task = RbTask.find(:first, :conditions => ['subject = ?', mutation.delete('task')])
+  table.hashes.each do |mutation|
+    mutation.delete_if{|k, v| v.to_s.strip == '' }
+    task = RbTask.find_by_subject(mutation.delete('task'))
     task.should_not be_nil
+
+    set_now(mutation.delete('day'), :msg => task.subject, :sprint => current_sprint)
+    Time.now.should be >= task.created_on
+
     task.init_journal(User.current)
 
     status_name = mutation.delete('status').to_s
@@ -274,18 +315,9 @@ Given /^I have made the following task mutations:$/ do |table|
 
     remaining = mutation.delete('remaining')
 
-    mutated = days[mutation.delete('day').to_i - 1]
-    mutated.utc?.should be_true
-
-    mutated.to_date.should be >= task.created_on.to_date
-
-    mutated = task.created_on if (mutated.to_date == task.created_on.to_date)
-    mutated += time_offset("#{(no + 1)*10}m")
-    Timecop.travel(mutated) do
-      task.remaining_hours = remaining.to_f unless remaining.blank?
-      task.status_id = status if status
-      task.save!.should be_true
-    end
+    task.remaining_hours = remaining.to_f unless remaining.blank?
+    task.status_id = status if status
+    task.save!.should be_true
 
     mutation.should == {}
   end
@@ -321,43 +353,21 @@ Given /^I have defined the following stories in the following sprints:$/ do |tab
     else
       project = @project
     end
-    sprint = RbSprint.find(:first, :conditions => { "name" => story.delete('sprint') }) #find by name only, please use unique sprint names over projects for tests
+    sprint = RbSprint.find_by_name(story.delete('sprint')) #find by name only, please use unique sprint names over projects for tests
+    sprint.should_not be_nil
     params = initialize_story_params project.id
     params['subject'] = story.delete('subject')
     params['fixed_version_id'] = sprint.id
     params['story_points'] = story.delete('points').to_i if story['points'].to_s != ''
 
-    day_added = story.delete('day')
-    offset = story.delete('offset')
-    created_on = nil
-
-    if day_added
-      if day_added == ''
-        # one day before sprint start
-        before_sprint_start = sprint.sprint_start_date - 1
-        created_on = before_sprint_start.to_time(:utc)
-        created_on.hour.should == 0
-      else
-        created_on = sprint.days(:all)[Integer(day_added)-1].to_time(:utc) + time_offset('1h')
-        created_on.hour.should == 1
-      end
-    elsif offset
-      created_on = sprint.sprint_start_date.to_time(:utc) + time_offset(offset)
-      created_on.hour.should == offset_to_hours(time_offset(offset))
-    end
+    set_now(story.delete('day'), :msg => params['subject'], :sprint => sprint)
 
     story.should == {}
 
     # NOTE: We're bypassing the controller here because we're just
     # setting up the database for the actual tests. The actual tests,
     # however, should NOT bypass the controller
-    if created_on
-      Timecop.travel(created_on) do
-        RbStory.create_and_position(params).move_to_bottom
-      end
-    else
-      RbStory.create_and_position(params).move_to_bottom
-    end
+    RbStory.create_and_position(params).move_to_bottom
   end
 end
 
@@ -369,7 +379,7 @@ Given /^I have defined the following tasks:$/ do |table|
     params = initialize_task_params(story.id)
     params['subject'] = task.delete('subject')
 
-    offset = time_offset(task.delete('offset'))
+    offset = time_offset(task.delete('offset') || '1h')
 
     status = task.delete('status')
     params['status_id'] = IssueStatus.find(:first, :conditions => ['name = ?', status]).id unless status.blank?
@@ -380,19 +390,15 @@ Given /^I have defined the following tasks:$/ do |table|
 
     task.should == {}
 
+    set_now(story.created_on + offset, :ignore => 60, :msg => params['subject'])
+
     # NOTE: We're bypassing the controller here because we're just
     # setting up the database for the actual tests. The actual tests,
     # however, should NOT bypass the controller
-    if offset
-      Timecop.travel(story.created_on + offset) do
-        task = RbTask.create_with_relationships(params, @user.id, story.project.id)
-        task.parent_issue_id = story.id # workaround racktest driver weirdness: user is not member of subprojects. phantomjs driver works as expected, though.
-        task.save! # workaround racktest driver weirdness
-        task
-      end
-    else
-      RbTask.create_with_relationships(params, @user.id, story.project.id)
-    end
+    task = RbTask.create_with_relationships(params, @user.id, story.project.id)
+    task.parent_issue_id = story.id # workaround racktest driver weirdness: user is not member of subprojects. phantomjs driver works as expected, though.
+    task.save! # workaround racktest driver weirdness
+    task
   end
 end
 
@@ -474,7 +480,7 @@ end
 
 Given /^show me the task hours$/ do
   header = ['task', 'hours']
-  data = Issue.find(:all, :conditions => ['tracker_id = ? and fixed_version_id = ?', RbTask.tracker, @sprint.id]).collect{|t| [t.subject, t.remaining_hours.inspect]}
+  data = Issue.find(:all, :conditions => ['tracker_id = ? and fixed_version_id = ?', RbTask.tracker, current_sprint.id]).collect{|t| [t.subject, t.remaining_hours.inspect]}
   show_table("Task hours", header, data)
 end
 
@@ -485,14 +491,13 @@ Given /^I have changed the sprint start date to (.*)$/ do |date|
     when 'tomorrow'
       date = (Date.today + 1).to_time
     else
-      raise "Unsupported date '#{date}'"
+      date = Date.parse(date)
   end
-  @sprint.created_on = date
-  @sprint.save!
+  current_sprint.sprint_start_date = date
+  current_sprint(:keep).save!
 end
 
 Given /^I have configured backlogs plugin to include Saturday and Sunday in burndown$/ do
-  Rails.cache.clear
   Backlogs.setting[:include_sat_and_sun] = true
 end
 
@@ -571,16 +576,14 @@ Given /^sharing is (.*)enabled$/ do |neg|
   Backlogs.setting[:sharing_enabled] = !!(neg=='')
 end
 
+Given /^the project selected not to include subprojects in the product backlog$/ do
+  settings = @project.rb_project_settings
+  settings.show_stories_from_subprojects = false
+  settings.save
+end
+
 Given /cross_project_issue_relations is (enabled|disabled)/ do | enabled |
   Setting[:cross_project_issue_relations] = enabled=='enabled'?1:0
-end
-
-Given /^the current date is (.+)$/ do |new_time|
-  Timecop.travel(Date.parse(new_time))
-end
-
-Given /^the current time is restored$/ do
-  Timecop.return
 end
 
 Given /^I have defined the following releases:$/ do |table|
