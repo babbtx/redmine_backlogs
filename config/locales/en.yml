@@ -29,9 +29,7 @@ en:
   backlogs_statistics_velocity_stddev: "Velocity standard deviation: %{value} points"
   backlogs_points_burn_direction: Points burn up/down
   backlogs_product_backlog: Product backlog
-  backlogs_product_backlog_versions: Backlog version(s)
   backlogs_sprints: Sprints
-  backlogs_sprints_ignored_versions: Ignore version(s)
   backlogs_story: Story
   backlogs_story_tracker: Story trackers
   backlogs_task: Task
@@ -198,3 +196,6 @@ en:
   backlogs_show_stories_from_subprojects_in_backlog: Show stories from subprojects in backlog
   rb_project_settings_updated: Settings updated
   rb_project_settings_update_error: Error while updating settings
+  rb_project_settings_backlog_versions: Backlog version(s)
+  rb_project_settings_ignored_versions: Ignore version(s)
+

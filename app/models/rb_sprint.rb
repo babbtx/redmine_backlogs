@@ -1,6 +1,8 @@
 require 'date'
+require 'rb_scope'
 
 class RbSprint < Version
+  include RbScope
   unloadable
 
   validate :start_and_end_dates
@@ -9,31 +11,28 @@ class RbSprint < Version
     errors.add(:base, "sprint_end_before_start") if self.effective_date && self.sprint_start_date && self.sprint_start_date >= self.effective_date
   end
 
-  def self.rb_scope(symbol, func)
-    if Rails::VERSION::MAJOR < 3
-      named_scope symbol, func
-    else
-      scope symbol, func
-    end
-  end
-
   # +options+ can include:
   #
   #  :status      sprint status (String or Array) [open]
-  #  :project_id  only version associated with this project [no default]
+  #  :project_id  only versions associated with this project [no default]
+  #  :ignored     version ids to be ignored [no default]
   #
   def self.find_options(options = {})
-    status = options.delete(:status) || 'open'
+    status = options[:status] || 'open'
     status = Array(status)
     conditions = ['versions.status in (?)', status.collect(&:to_s)]
+
     if options.include?(:project_id)
       conditions.first << ' and versions.project_id = ?'
       conditions << options[:project_id]
     end
-    ignored_version_ids = RbStory.ignored_versions + RbStory.backlog_versions - [0]
-    unless ignored_version_ids.empty?
-      conditions.first << " and versions.id not in (?)"
-      conditions << ignored_version_ids
+
+    if options.include?(:ignored)
+      ignored = options[:ignored]
+      unless ignored.empty?
+        conditions.first << " and versions.id not in (?)"
+        conditions << ignored
+      end
     end
 
     { 
@@ -46,12 +45,20 @@ class RbSprint < Version
   end
 
   rb_scope :open_sprints, lambda { |project|
-    find_options(:project_id => project.id, :status => 'open')  #FIXME locked, too?
+    # ignore the ignored versions plus the backlog
+    ignored = RbProjectSettings.with_ignored_versions(project).collect(&:ignored_versions)
+    ignored += RbProjectSettings.with_backlog_versions(project).collect(&:backlog_versions)
+    ignored.flatten!
+    find_options(:project_id => project.id, :ignored => ignored, :status => 'open')  #FIXME locked, too?
   }
 
   #TIB ajout du scope :closed_sprints
   rb_scope :closed_sprints, lambda { |project|
-    find_options(:project_id => project.id, :status => 'closed')
+    # ignore the ignored versions plus the backlog
+    ignored = RbProjectSettings.with_ignored_versions(project).collect(&:ignored_versions)
+    ignored += RbProjectSettings.with_backlog_versions(project).collect(&:backlog_versions)
+    ignored.flatten!
+    find_options(:project_id => project.id, :ignored => ignored, :status => 'closed')
   }
 
   #depending on sharing mode

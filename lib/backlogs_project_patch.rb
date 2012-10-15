@@ -157,7 +157,6 @@ module Backlogs
     def self.included(base) # :nodoc:
       base.extend(ClassMethods)
       base.send(:include, InstanceMethods)
-
       include Backlogs::ActiveRecord::Attributes
     end
 
@@ -165,6 +164,11 @@ module Backlogs
     end
 
     module InstanceMethods
+      def self.included(base)
+        base.class_eval do
+          has_one :rb_project_settings, :dependent => :destroy
+        end
+      end
 
       def scrum_statistics
         ## pretty expensive to compute, so if we're calling this multiple times, return the cached results
@@ -198,7 +202,13 @@ module Backlogs
       #depending on sharing mode
       def open_shared_sprints
         if Backlogs.setting[:sharing_enabled]
-          shared_versions.scoped(RbSprint.find_options(:status => ['open', 'locked'])).collect{|v| v.becomes(RbSprint) }
+          # ignore the ignored versions plus the backlog
+          ignored = RbProjectSettings.with_ignored_versions(self.self_and_descendants).collect(&:ignored_versions)
+          ignored += RbProjectSettings.with_backlog_versions(self.self_and_descendants).collect(&:backlog_versions)
+          ignored.flatten!
+          shared_versions.
+              scoped(RbSprint.find_options(:ignored => ignored, :status => ['open', 'locked'])).
+              collect{|v| v.becomes(RbSprint) }
         else #no backlog sharing
           RbSprint.open_sprints(self)
         end 
@@ -210,7 +220,13 @@ module Backlogs
           return []
         else
           if Backlogs.setting[:sharing_enabled]
-            shared_versions.scoped(RbSprint.find_options(:status => 'closed')).collect{|v| v.becomes(RbSprint) }
+            # ignore the ignored versions plus the backlog
+            ignored = RbProjectSettings.with_ignored_versions(self.self_and_descendants).collect(&:ignored_versions)
+            ignored += RbProjectSettings.with_backlog_versions(self.self_and_descendants).collect(&:backlog_versions)
+            ignored.flatten!
+            shared_versions.
+                scoped(RbSprint.find_options(:ignored => ignored, :status => 'closed')).
+                collect{|v| v.becomes(RbSprint) }
           else #no backlog sharing
             RbSprint.closed_sprints(self)
           end
