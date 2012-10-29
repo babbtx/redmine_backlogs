@@ -225,11 +225,20 @@ class RbIssueHistory < ActiveRecord::Base
 
     status = self.statuses
 
-    issues = Issue.count
-    Issue.find(:all, :order => 'root_id asc, lft desc').each_with_index{|issue, n|
-      puts "#{issue.id.to_s.rjust(6, ' ')} (#{(n+1).to_s.rjust(6, ' ')}/#{issues})..."
-      RbIssueHistory.rebuild_issue(issue, status)
-    }
+    # only rebuild history for issues in projects where backlogs is enabled
+    projects = Project.find(:all, :joins => :enabled_modules, :conditions => "enabled_modules.name = 'backlogs'")
+    projects = projects.collect(&:self_and_descendants) if Backlogs.setting[:sharing_enabled]
+    project_ids = projects.collect(&:id).uniq
+
+    unless project_ids.empty?
+      puts "Rebuild issue history for issues in projects #{project_ids.join(", ")}"
+      find_opts = {:conditions => {:id => project_ids}}
+      issues = Issue.count(find_opts)
+      Issue.find(:all, find_opts.merge(:order => 'root_id asc, lft desc')).each_with_index{|issue, n|
+        puts "#{issue.id.to_s.rjust(6, ' ')} (#{(n+1).to_s.rjust(6, ' ')}/#{issues})..."
+        RbIssueHistory.rebuild_issue(issue, status)
+      }
+    end
   end
 
   private
