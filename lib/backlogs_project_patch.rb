@@ -157,18 +157,17 @@ module Backlogs
     def self.included(base) # :nodoc:
       base.extend(ClassMethods)
       base.send(:include, InstanceMethods)
-      include Backlogs::ActiveRecord::Attributes
+
+      base.class_eval do
+        has_one :rb_project_settings, :dependent => :destroy
+        include Backlogs::ActiveRecord::Attributes
+      end
     end
 
     module ClassMethods
     end
 
     module InstanceMethods
-      def self.included(base)
-        base.class_eval do
-          has_one :rb_project_settings, :dependent => :destroy
-        end
-      end
 
       def scrum_statistics
         ## pretty expensive to compute, so if we're calling this multiple times, return the cached results
