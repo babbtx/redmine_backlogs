@@ -225,9 +225,8 @@ class RbIssueHistory < ActiveRecord::Base
 
     status = self.statuses
 
-    opts = {:conditions => ['created_on > ?', Backlogs.install_date]}
-    issues = Issue.count(opts)
-    Issue.find(:all, opts.merge(:order => 'root_id asc, lft desc')).each_with_index{|issue, n|
+    issues = Issue.count
+    Issue.find(:all, :order => 'root_id asc, lft desc').each_with_index{|issue, n|
       puts "#{issue.id.to_s.rjust(6, ' ')} (#{(n+1).to_s.rjust(6, ' ')}/#{issues})..."
       RbIssueHistory.rebuild_issue(issue, status)
     }

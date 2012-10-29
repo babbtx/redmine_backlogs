@@ -182,23 +182,6 @@ module Backlogs
   end
   module_function :platform
 
-  def install_date
-    @install_date = Backlogs.setting[:install_date]
-    unless @install_date
-      # guess the install date from the oldest artifact we can find,
-      # including the plugin directory creation date
-      v = []
-      v << RbSprintBurndown.connection.execute("select created_at from #{RbSprintBurndown.table_name} order by created_at asc limit 1") if RbSprintBurndown.table_exists?
-      v << ReleaseBurndownDay.connection.execute("select created_at from #{ReleaseBurndownDay.table_name} order by created_at asc limit 1") if ReleaseBurndownDay.table_exists?
-      v << RbRelease.connection.execute("select created_at from #{RbRelease.table_name} order by created_at asc limit 1") if RbRelease.table_exists?
-      d = v.collect(&:values).flatten.compact.collect{|s|DateTime.parse(s)}
-      d << File.ctime(Redmine::Plugin.find(:redmine_backlogs).directory).to_datetime
-      @install_date = d.sort.first || DateTime.now
-      Backlogs.setting[:install_date] = @install_date
-    end
-  end
-  module_function :install_date
-
   class SettingsProxy
     include Singleton
 
