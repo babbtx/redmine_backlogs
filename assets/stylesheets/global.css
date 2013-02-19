@@ -1,13 +1,16 @@
 /* GLOBAL */
 body{
+  background: none;
   background-color:#FFFFFF;
-  font-family:Verdana, Arial, sans-serif;
-  font-size:1em;
   height:100%;
   margin:0;
   width:100%;
 }
-a{
+.rb-toolbar, .rb-main {
+  font-family:Verdana, Arial, sans-serif;
+  font-size:12px;
+}
+a, a:link, a:visited {
   color:#CC0000;
   text-decoration:none;
 }
@@ -27,7 +30,6 @@ a:hover{
 }
 #toolbar .breadcrumbs{
   float: left;
-  font-size: 0.8em;
   margin-left: 10px;
   margin-right: 10px;
 }
@@ -35,21 +37,18 @@ a:hover{
   font-size:1.2em;
 }
 #toolbar .breadcrumbs .separator{
-  bottom:2px;
   color: #999999;
-  font-size:0.7em;
+  font-size:0.9em;
   font-weight:bold;
-/*  position:relative;*/
+  padding: 0 .2em;
 }
 #toolbar .userselect{
   float: left;
-  font-size: 0.7em;
   position:relative;
 }
 #toolbar .links{
   bottom:5px;
   display:block;
-  font-size:0.7em;
   right:10px;
   position:absolute;
 }
@@ -92,4 +91,18 @@ ul.ui-sortable {
 }
 .tooltip_text{
   display:none;
+}
+
+
+/* drag-drop effect: disabled dropzones are greyed out */
+.rb-sortable-disabled,
+.ui-sortable-disabled {
+  /*crap browsers*/
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=50)";
+  filter: alpha(opacity=50);
+  -moz-opacity: 0.5;
+  -khtml-opacity: 0.5;
+  /*good browsers*/
+  opacity: 0.5;
+  background-color: #dddddd;
 }

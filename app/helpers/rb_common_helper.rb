@@ -32,7 +32,7 @@ filter:progid:DXImageTransform.Microsoft.Gradient(Enabled=1,GradientType=0,Start
   end
 
   def breadcrumb_separator
-    "<span class='separator'>&gt;</span>".html_safe
+    "<span class='separator'>&raquo;</span>".html_safe
   end
 
   def description_or_empty(story)
@@ -216,6 +216,12 @@ filter:progid:DXImageTransform.Microsoft.Gradient(Enabled=1,GradientType=0,Start
   def users_assignable_options_for_select(collection)
     s = ''
     groups = ''
+
+    if collection.include?(User.current)
+      el = User.current
+      s << "<option value=\"#{el.id}\" color=\"#{el.backlogs_preference[:task_color]}\" color_light=\"#{el.backlogs_preference[:task_color_light]}\">&lt;&lt; #{l(:label_me)} &gt;&gt;</option>"
+    end
+    
     collection.sort.each do |element|
       if element.is_a?(Group)
         groups << "<option value=\"#{element.id}\" color=\"#AAAAAA\" color_light=\"#E0E0E0\">#{h element.name}</option>"

@@ -24,6 +24,9 @@ module Backlogs
         @velocity_stddev = stddev(@velocity)
       end
 
+      spent_hours = @past_sprints.collect{|sprint| sprint.spent_hours}
+      @spent_hours_per_point = spent_hours.sum / @velocity.sum unless spent_hours.nil? || @velocity.nil? || @velocity.sum == 0
+
       @product_backlog = RbStory.product_backlog(@project, 10)
 
       hours_per_point = []
@@ -56,6 +59,7 @@ module Backlogs
     attr_reader :statistics, :score
     attr_reader :active_sprint, :past_sprints
     attr_reader :hours_per_point
+    attr_reader :spent_hours_per_point
 
     def stddev(values)
       median = values.sum / values.size.to_f
@@ -141,15 +145,23 @@ module Backlogs
     end
 
     def stat_velocity_stddev
-      return @velocity_stddev
+      return @velocity_stddev unless @velocity_stddev.is_a? Float
+      return '%.2f' % @velocity_stddev      
     end
 
     def stat_sizing_stddev
-      return @hours_per_point_stddev
+      return @hours_per_point_stddev unless @hours_per_point_stddev.is_a? Float
+      return '%.2f' % @hours_per_point_stddev
     end
 
     def stat_hours_per_point
-      return @hours_per_point
+      return @hours_per_point unless @hours_per_point.is_a? Float
+      return '%.2f' % @hours_per_point
+    end
+
+    def stat_spent_hours_per_point
+      return nil unless @spent_hours_per_point
+      return '%.2f' % @spent_hours_per_point
     end
   end
 
@@ -187,7 +199,7 @@ module Backlogs
         #sharing off: only the product itself is in the product backlog
         #sharing on: subtree is included in the product backlog
         if Backlogs.setting[:sharing_enabled] and self.rb_project_settings.show_stories_from_subprojects
-          self.self_and_descendants.active
+          self.self_and_descendants.visible.active
         else
           [self]
         end
@@ -205,7 +217,7 @@ module Backlogs
           ignored = RbProjectSettings.with_ignored_versions(self.self_and_descendants).collect(&:ignored_versions)
           ignored += RbProjectSettings.with_backlog_versions(self.self_and_descendants).collect(&:backlog_versions)
           ignored.flatten!
-          shared_versions.
+          shared_versions.visible.
               scoped(RbSprint.find_options(:ignored => ignored, :status => ['open', 'locked'])).
               collect{|v| v.becomes(RbSprint) }
         else #no backlog sharing
@@ -223,7 +235,7 @@ module Backlogs
             ignored = RbProjectSettings.with_ignored_versions(self.self_and_descendants).collect(&:ignored_versions)
             ignored += RbProjectSettings.with_backlog_versions(self.self_and_descendants).collect(&:backlog_versions)
             ignored.flatten!
-            shared_versions.
+            shared_versions.visible.
                 scoped(RbSprint.find_options(:ignored => ignored, :status => 'closed')).
                 collect{|v| v.becomes(RbSprint) }
           else #no backlog sharing

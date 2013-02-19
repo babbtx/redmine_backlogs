@@ -11,7 +11,7 @@ module Backlogs
 
         acts_as_list_with_gaps :default => (Backlogs.setting[:new_story_position] == 'bottom' ? 'bottom' : 'top')
 
-        has_one :backlogs_history, :class_name => RbIssueHistory
+        has_one :backlogs_history, :class_name => RbIssueHistory, :dependent => :destroy
 
         before_save :backlogs_before_save
         after_save  :backlogs_after_save
@@ -98,7 +98,7 @@ module Backlogs
             self.start_date = Date.today if self.start_date.blank? && self.status_id != IssueStatus.default.id
 
             self.tracker = Tracker.find(RbTask.tracker) unless self.tracker_id == RbTask.tracker
-          elsif self.is_story?
+          elsif self.is_story? && Backlogs.setting[:set_start_and_duedates_from_sprint]
             if self.fixed_version
               self.start_date ||= (self.fixed_version.sprint_start_date || Date.today)
               self.due_date ||= self.fixed_version.effective_date
@@ -123,6 +123,14 @@ module Backlogs
 
       def backlogs_after_save
         self.history.save!
+        [self.parent_id, self.parent_id_was].compact.uniq.each{|pid|
+          p = Issue.find(pid)
+          r = p.leaves.sum("COALESCE(remaining_hours, 0)").to_f
+          if r != p.remaining_hours
+            p.update_attribute(:remaining_hours, r)
+            p.history.save
+          end
+        }
 
         return unless Backlogs.configured?(self.project)
 

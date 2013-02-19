@@ -14,6 +14,11 @@
       @project.rb_project_settings.show_stories_from_subprojects) %>
 </p>
 <p>
+  <%= content_tag(:label, l(:backlogs_show_in_scrum_stats)) %>
+  <%= check_box_tag("settings[show_in_scrum_stats]", 'enabled',
+      @project.rb_project_settings.show_in_scrum_stats) %>
+</p>
+<p>
   <%= content_tag(:label, l(:rb_project_settings_ignored_versions)) %>
   <%= select_tag("settings[ignored_versions]",
                  options_from_collection_for_select(
@@ -21,14 +26,14 @@
                      @project.rb_project_settings.ignored_versions),
                  :multiple => true, :size => 10) %>
 </p>
-  <p>
-    <%= content_tag(:label, l(:rb_project_settings_backlog_versions)) %>
-    <%= select_tag("settings[backlog_versions]",
-                   options_from_collection_for_select(
-                       RbProjectSettings.filterable_versions_for_project(@project, :include_nil => true), :id, :name,
-                       @project.rb_project_settings.backlog_versions),
-                   :multiple => true, :size => 10) %>
-  </p>
+<p>
+  <%= content_tag(:label, l(:rb_project_settings_backlog_versions)) %>
+  <%= select_tag("settings[backlog_versions]",
+                 options_from_collection_for_select(
+                     RbProjectSettings.filterable_versions_for_project(@project, :include_nil => true), :id, :name,
+                     @project.rb_project_settings.backlog_versions),
+                 :multiple => true, :size => 10) %>
+</p>
 </div>
 <%= submit_tag(l(:button_save)) %>
 <% end %>

@@ -2,7 +2,12 @@ if(RB==null){
   var RB = {};
 }
 
-if (RB.$ == null) { RB.$ = jQuery.noConflict(); }
+if (RB.$ == null) { 
+  RB.$ = jQuery.noConflict(); 
+  if ($ === undefined) {
+    $ = RB.$;
+  }
+}
 
 RB.Object = {
   // Douglas Crockford's technique for object extension
@@ -22,7 +27,7 @@ RB.Object = {
     }
     return obj;
   }  
-}
+};
 
 
 // Object factory for redmine_backlogs
@@ -52,22 +57,22 @@ RB.Dialog = RB.Object.create({
   }
 });
 
-RB.ajaxQueue = new Array()
+RB.ajaxQueue = new Array();
 RB.ajaxOngoing = false;
 
 RB.ajax = function(options){
   RB.ajaxQueue.push(options);
   if(!RB.ajaxOngoing){ RB.processAjaxQueue(); }
-}
+};
 
 RB.processAjaxQueue = function(){
   var options = RB.ajaxQueue.shift();
 
-  if(options!=null){
+  if(options){
     RB.ajaxOngoing = true;
     RB.$.ajax(options);
   }
-}
+};
 
 RB.$(document).ajaxComplete(function(event, xhr, settings){
   RB.ajaxOngoing = false;
@@ -90,11 +95,19 @@ RB.$(document).ajaxSend(function(event, request, settings) {
 // Abstract the user preference from the rest of the RB objects
 // so that we can change the underlying implementation as needed
 RB.UserPreferences = RB.Object.create({
-  get: function(key){
+  get: function(key, global){
+    var path = RB.urlFor('home')+'rb';
+    if (global) return RB.$.cookie(key, {path: path});
     return RB.$.cookie(key);
   },
   
-  set: function(key, value){
-    RB.$.cookie(key, value, { expires: 365 * 10 });
+  set: function(key, value, global){
+    if (global) {
+      var path = RB.urlFor('home')+'rb';
+      RB.$.cookie(key, value, { expires: 365 * 10, path: path });
+    }
+    else {
+      RB.$.cookie(key, value, { expires: 365 * 10 });
+    }
   }
 });

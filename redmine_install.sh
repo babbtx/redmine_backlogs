@@ -1,5 +1,18 @@
 #/bin/bash
 
+trap "cleanup" EXIT
+
+cleanup()
+{
+  for log in $WORKSPACE/cuke*.log; do
+    if [ -f "$log" ]; then
+      sed '/^$/d' -i $log # empty lines
+      sed 's/$//' -i $log # ^Ms at end of lines
+      sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"  -i $log # ansi coloring
+    fi
+  done
+}
+
 if [[ -e "$HOME/.backlogs.rc" ]]; then
   source "$HOME/.backlogs.rc"
 fi
@@ -24,37 +37,33 @@ then
 fi
 
 export RAILS_ENV=test
+export IN_RBL_TESTENV=true
 
 case $REDMINE_VER in
-  1.4.4)  export PATH_TO_PLUGINS=./vendor/plugins # for redmine < 2.0
+  1.4.6)  export PATH_TO_PLUGINS=./vendor/plugins # for redmine < 2.0
           export GENERATE_SECRET=generate_session_store
           export MIGRATE_PLUGINS=db:migrate_plugins
-          export REDMINE_GIT_REPO=git://github.com/edavis10/redmine.git
-          export REDMINE_GIT_TAG=$REDMINE_VER
-          ;;
-  2.1.2)  export PATH_TO_PLUGINS=./plugins # for redmine 2.0
-          export GENERATE_SECRET=generate_secret_token
-          export MIGRATE_PLUGINS=redmine:plugins:migrate
-          export REDMINE_GIT_REPO=git://github.com/edavis10/redmine.git
-          export REDMINE_GIT_TAG=$REDMINE_VER
+          export REDMINE_TARBALL=https://github.com/edavis10/redmine/archive/$REDMINE_VER.tar.gz
           ;;
   2.0.4)  export PATH_TO_PLUGINS=./plugins # for redmine 2.0
           export GENERATE_SECRET=generate_secret_token
           export MIGRATE_PLUGINS=redmine:plugins:migrate
-          export REDMINE_GIT_REPO=git://github.com/edavis10/redmine.git
-          export REDMINE_GIT_TAG=$REDMINE_VER
+          export REDMINE_TARBALL=https://github.com/edavis10/redmine/archive/$REDMINE_VER.tar.gz
           ;;
-  master) export PATH_TO_PLUGINS=./plugins # for redmine 2.0
+  2.1.6)  export PATH_TO_PLUGINS=./plugins # for redmine 2.1
           export GENERATE_SECRET=generate_secret_token
           export MIGRATE_PLUGINS=redmine:plugins:migrate
-          export REDMINE_GIT_REPO=git://github.com/edavis10/redmine.git
-          export REDMINE_GIT_TAG=$REDMINE_VER
+          export REDMINE_TARBALL=https://github.com/edavis10/redmine/archive/$REDMINE_VER.tar.gz
+          ;;
+  2.2.1)  export PATH_TO_PLUGINS=./plugins # for redmine 2.2
+          export GENERATE_SECRET=generate_secret_token
+          export MIGRATE_PLUGINS=redmine:plugins:migrate
+          export REDMINE_TARBALL=https://github.com/edavis10/redmine/archive/$REDMINE_VER.tar.gz
           ;;
   v3.3.0) export PATH_TO_PLUGINS=./vendor/plugins
           export GENERATE_SECRET=generate_session_store
           export MIGRATE_PLUGINS=db:migrate:plugins
-          export REDMINE_GIT_REPO=http://github.com/chiliproject/chiliproject.git
-          export REDMINE_GIT_TAG=$REDMINE_VER
+          export REDMINE_TARBALL=https://github.com/chiliproject/chiliproject/archive/$REDMINE_VER.tar.gz
           ;;
   *)      echo "Unsupported platform $REDMINE_VER"
           exit 1
@@ -70,9 +79,8 @@ clone_redmine()
   if [ ! "$VERBOSE" = "yes" ]; then
     QUIET=--quiet
   fi
-  git clone -b master --depth=100 $QUIET $REDMINE_GIT_REPO $PATH_TO_REDMINE
-  cd $PATH_TO_REDMINE
-  git checkout $REDMINE_GIT_TAG
+  mkdir -p $PATH_TO_REDMINE
+  wget $REDMINE_TARBALL -O- | tar -C $PATH_TO_REDMINE -xz --strip=1 --show-transformed -f -
 }
 
 run_tests()
@@ -108,15 +116,24 @@ run_tests()
     fi
   fi
 
-  if [ "$1" = "" ]; then
-    script -e -c "bundle exec cucumber $CUCUMBER_FLAGS features" -f $WORKSPACE/cuke.log
-  else
-    script -e -c "bundle exec cucumber $CUCUMBER_FLAGS features/$1.feature" -f $WORKSPACE/cuke.log
+  FEATURE=$1
+  if [ ! -e "$FEATURE" ]; then
+    FEATURE="features/$FEATURE.feature"
   fi
-  sed '/^$/d' -i $WORKSPACE/cuke.log # empty lines
-  sed 's/$//' -i $WORKSPACE/cuke.log # ^Ms at end of lines
-  sed "s/\x1b\[.\{1,5\}m//g"  -i $WORKSPACE/cuke.log # ansi coloring
-  sed -e 's/_^H//g' -e 's/^H.//g' -e 's/^[\[[0-9]*m//g' -i $WORKSPACE/cuke.log # underscore and bold
+  if [ ! -e "$FEATURE" ]; then
+    FEATURE=""
+  fi
+
+  if [ -e "$FEATURE" ]; then
+    TESTS="$FEATURE"
+    LOG=`basename $FEATURE`
+    LOG="$WORKSPACE/cuke.$LOG.log"
+  else
+    TEST="features"
+    LOG=$WORKSPACE/cuke.log
+  fi
+
+  script -e -c "bundle exec cucumber $CUCUMBER_FLAGS $TESTS" -f $LOG
 }
 
 uninstall()
@@ -142,12 +159,23 @@ echo current directory is `pwd`
 # create a link to the backlogs plugin
 ln -sf $PATH_TO_BACKLOGS $PATH_TO_PLUGINS/redmine_backlogs
 
+# copy database.yml
+cp $WORKSPACE/database.yml config/
+if [ "$RUBYVER" = "1.8" ]; then
+  sed -i -e 's/mysql2/mysql/g' config/database.yml
+fi
+
+export DBNAME=`ruby -e "require 'yaml'; puts YAML::load(open('config/database.yml'))['$RAILS_ENV']['database']"`
+export DBTYPE=`ruby -e "require 'yaml'; puts YAML::load(open('config/database.yml'))['$RAILS_ENV']['adapter']"`
+
 if [ "$CLEARDB" = "yes" ]; then
-  DBNAME=`ruby -e "require 'yaml'; puts YAML::load(open('../database.yml'))['$RAILS_ENV']['database']"`
-  DBTYPE=`ruby -e "require 'yaml'; puts YAML::load(open('../database.yml'))['$RAILS_ENV']['adapter']"`
   if [ "$DBTYPE" = "mysql2" ] || [ "$DBTYPE" = "mysql" ]; then
     mysqladmin -f -u root -p$DBROOTPW drop $DBNAME
     mysqladmin -u root -p$DBROOTPW create $DBNAME
+  fi
+  if [ "$DBTYPE" = "postgresql" ] ; then
+    echo "drop database if exists $DBNAME" | psql postgres root
+    echo "create database $DBNAME" | psql postgres root
   fi
 fi
 
@@ -155,45 +183,65 @@ if [ "$DB_TO_RESTORE" = "" ]; then
   export story_trackers=Story
   export task_tracker=Task
 else
-  DBNAME=`ruby -e "require 'yaml'; puts YAML::load(open('../database.yml'))['$RAILS_ENV']['database']"`
-  DBTYPE=`ruby -e "require 'yaml'; puts YAML::load(open('../database.yml'))['$RAILS_ENV']['adapter']"`
   if [ "$DBTYPE" = "mysql2" ] || [ "$DBTYPE" = "mysql" ]; then
     mysqladmin -f -u root -p$DBROOTPW drop $DBNAME
     mysqladmin -u root -p$DBROOTPW create $DBNAME
     mysql -u root -p$DBROOTPW $DBNAME < $DB_TO_RESTORE
   fi
+  if [ "$DBTYPE" = "postgresql" ] ; then
+    echo "drop database if exists $DBNAME" | psql postgres root
+    echo "create database $DBNAME" | psql postgres root
+    psql $DBNAME root < $DB_TO_RESTORE
+  fi
 fi
 
-#ignore redmine-master's test-unit dependency, we need 1.2.3
+# Workarounds for test-unit versions, for Rails 2 - e.g in case we still support Chiliproject.
+# TODO: review if this is only for CP, if so remove this and adjust condition in our Gemfile
+# 20130120 patrick: using test-unit > 1.2.3 has the complete dependency hell going to cucumber.
+# 1) ignore redmine-master's test-unit dependency, we need 1.2.3..
 sed -i -e 's=.*gem ["'\'']test-unit["'\''].*==g' ${PATH_TO_REDMINE}/Gemfile
+# 2) tell out Gemfile that we're testing: so force test-unit 1.2.3 #done globally above by setting IN_RBL_TESTENV=true
+
 # install gems
 mkdir -p vendor/bundle
 bundle install --path vendor/bundle
 
-# copy database.yml
-cp $WORKSPACE/database.yml config/
-RUBYVER=`ruby -v | awk '{print $2}' | awk -F. '{print $1"."$2}'`
-if [ "$RUBYVER" = "1.8" ]; then
-  sed -i -e 's/mysql2/mysql/g' config/database.yml
+if [ "$DBTYPE" = "mysql" -a "$RUBYVER" = "1.8" ] ; then
+  bundle exec gem install -v=2.8.1 mysql
+  echo y | bundle exec gem uninstall -v=2.9.0 mysql
+  echo 'boing'
 fi
 
+#sed -i -e "s/require 'rake\/gempackagetask'/require 'rubygems\/package_task'/" -e 's/require "rake\/gempackagetask"/require "rubygems\/package_task"/' `find . -type f -exec grep -l 'require.*rake.gempackagetask' {} \;` README.rdoc
+sed -i -e 's/fail "GONE"/#fail "GONE"/' `find . -type f -exec grep -l 'fail "GONE"' {} \;` README.rdoc
+
+if [ "$VERBOSE" = "yes" ]; then echo 'Gems installed'; fi
+
 if [ "$VERBOSE" = "yes" ]; then
-  TRACE=--trace
+  export TRACE=--trace
 fi
+
 # run redmine database migrations
+if [ "$VERBOSE" = "yes" ]; then echo 'Migrations'; fi
 bundle exec rake db:migrate $TRACE
 
 # install redmine database
+if [ "$VERBOSE" = "yes" ]; then echo 'Load defaults'; fi
 bundle exec rake redmine:load_default_data REDMINE_LANG=en $TRACE
 
+if [ "$VERBOSE" = "yes" ]; then echo 'Tokens'; fi
 # generate session store/secret token
 bundle exec rake $GENERATE_SECRET $TRACE
 
 # run backlogs database migrations
+if [ "$VERBOSE" = "yes" ]; then echo 'Plugin migrations'; fi
 bundle exec rake $MIGRATE_PLUGINS $TRACE
 
 # install backlogs
+if [ "$VERBOSE" = "yes" ]; then echo 'Backlogs install'; fi
 bundle exec rake redmine:backlogs:install labels=no $TRACE
+
+if [ "$VERBOSE" = "yes" ]; then echo 'Done!'; fi
 }
 
 while getopts :irtu opt

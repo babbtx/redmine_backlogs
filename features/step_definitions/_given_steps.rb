@@ -1,5 +1,6 @@
 require 'rubygems'
 require 'timecop'
+require 'chronic'
 
 Before do
   Timecop.return
@@ -235,6 +236,9 @@ Given /^the (.*) project has the backlogs plugin enabled$/ do |project_id|
 
   # make sure existing stories don't occupy positions that the tests are going to use
   Issue.connection.execute("update issues set position = (position - #{Issue.minimum(:position)}) + #{Issue.maximum(:position)} + 50000")
+
+  Backlogs.setting[:card_spec] = 'Zweckform 3474'
+  BacklogsPrintableCards::CardPageLayout.selected.should_not be_nil
 end
 
 Given /^no versions or issues exist$/ do
@@ -250,23 +254,15 @@ Given /^backlogs setting show_burndown_in_sidebar is enabled$/ do
     Backlogs.setting[:show_burndown_in_sidebar] = 'enabled' #app/views/backlogs/view_issues_sidebar.html.erb
 end
 
-Given /^I have defined the following sprints:$/ do |table|
+Given /^I have defined the following sprints?:$/ do |table|
   @project.versions.delete_all
   table.hashes.each do |version|
 
-    version['project_id'] = get_project((version['project_id']||'ecookbook')).id #need to get current project defined in the table FIXME: (pa sharing) check this
+    #need to get current project defined in the table FIXME: (pa sharing) check this
+    version['project_id'] = get_project((version['project_id']||'ecookbook')).id
+
     ['effective_date', 'sprint_start_date'].each do |date_attr|
-      if version[date_attr] == 'today'
-        version[date_attr] = Date.today.strftime("%Y-%m-%d")
-      elsif version[date_attr].blank?
-        version[date_attr] = nil
-      elsif version[date_attr].match(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)
-        # we're OK as-is
-      elsif version[date_attr].match(/^(\d+)\.(year|month|week|day|hour|minute|second)(s?)\.(ago|from_now)$/)
-        version[date_attr] = eval(version[date_attr]).strftime("%Y-%m-%d")
-      else
-        raise "Unexpected date value '#{version[date_attr]}'"
-      end
+      version[date_attr] = Chronic.parse(version[date_attr]).strftime("%Y-%m-%d")
     end
 
     version['sharing'] = 'none' if version['sharing'].nil?
@@ -346,7 +342,7 @@ Given /^I have defined the following stories in the product backlog:$/ do |table
   end
 end
 
-Given /^I have defined the following stories in the following sprints:$/ do |table|
+Given /^I have defined the following stories in the following sprints?:$/ do |table|
   table.hashes.each do |story|
     if story['project_id'] # where to put the story into, so we can have a story of project A in a sprint of project B
       project = get_project(story.delete('project_id'))
@@ -379,8 +375,6 @@ Given /^I have defined the following tasks:$/ do |table|
     params = initialize_task_params(story.id)
     params['subject'] = task.delete('subject')
 
-    offset = time_offset(task.delete('offset') || '1h')
-
     status = task.delete('status')
     params['status_id'] = IssueStatus.find(:first, :conditions => ['name = ?', status]).id unless status.blank?
 
@@ -388,9 +382,15 @@ Given /^I have defined the following tasks:$/ do |table|
     params['estimated_hours'] = hours.to_f unless hours.blank?
     params['remaining_hours'] = hours.to_f unless hours.blank?
 
-    task.should == {}
+    at = task.delete('when').to_s
+    if at =~ /^0-9+/
+      set_now(at, :sprint => story.fixed_version, :msg => params['subject'])
+    else
+      set_now(at, :msg => params['subject'])
+    end
+    Time.now.should be >= story.created_on
 
-    set_now(story.created_on + offset, :ignore => 60, :msg => params['subject'])
+    task.should == {}
 
     # NOTE: We're bypassing the controller here because we're just
     # setting up the database for the actual tests. The actual tests,
@@ -437,6 +437,12 @@ Given /^I am viewing the issues sidebar for (.+)$/ do |name|
                 :project_id => @project,
                 :sprint_id => RbSprint.find_by_name(name).id,
                 :only_path => true)
+  verify_request_status(200)
+end
+
+Given /^I am viewing the issue named "([^"]*)"$/ do |name|
+  issue = Issue.find_by_subject(name)
+  visit url_for(:controller => 'issues', :action=>'show', :id => issue.id, :project_id => @project, :only_path=>true)
   verify_request_status(200)
 end
 
@@ -576,6 +582,10 @@ Given /^sharing is (.*)enabled$/ do |neg|
   Backlogs.setting[:sharing_enabled] = !!(neg=='')
 end
 
+Given /^default sharing for new sprints is (.+)$/ do |sharing|
+  Backlogs.setting[:sharing_new_sprint_sharingmode] = sharing
+end
+
 Given /^the project selected not to include subprojects in the product backlog$/ do
   settings = @project.rb_project_settings
   settings.show_stories_from_subprojects = false
@@ -599,3 +609,18 @@ Given /^I view the release page$/ do
   click_link("Releases")
 end
 
+Given /^Story closes when all Tasks are closed$/ do
+  Backlogs.setting[:story_follow_task_status] = 'close'
+  status = IssueStatus.find_by_name('Closed')
+  Backlogs.setting[:story_close_status_id] = status.id
+end
+
+Given /^Story states loosely follow Task states$/ do
+  Backlogs.setting[:story_follow_task_status] = 'loose'
+  Backlogs.setting[:story_close_status_id] = '0'
+  Setting.issue_done_ratio = 'issue_status' #auto done_ratio for issues. issue_field is not supported (yet)
+end
+
+Given /^Issue done_ratio is determined by the issue field$/ do
+  Setting.issue_done_ratio = 'issue_field'
+end

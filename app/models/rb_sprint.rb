@@ -35,11 +35,13 @@ class RbSprint < Version
       end
     end
 
+    order = Backlogs.setting[:sprint_sort_order] == 'desc' ? 'DESC' : 'ASC'
+
     { 
-      :order => "CASE sprint_start_date WHEN NULL THEN 1 ELSE 0 END ASC,
-                sprint_start_date ASC,
-                CASE effective_date WHEN NULL THEN 1 ELSE 0 END ASC,
-                effective_date ASC",
+      :order => "CASE sprint_start_date WHEN NULL THEN 1 ELSE 0 END #{order},
+                 sprint_start_date #{order},
+                 CASE effective_date WHEN NULL THEN 1 ELSE 0 END #{order},
+                 effective_date #{order}",
       :conditions => conditions
     }
   end

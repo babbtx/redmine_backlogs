@@ -10,10 +10,13 @@ class RbProjectSettingsController < RbApplicationController
     settings = @project.rb_project_settings
 
     enabled = false
-    if params[:settings][:show_stories_from_subprojects].present?
-      enabled = params[:settings][:show_stories_from_subprojects] == 'enabled'
+    enabled_scrum_stats = false
+    if params[:settings]
+      enabled = true if params[:settings]["show_stories_from_subprojects"]=="enabled"
+      enabled_scrum_stats = true if params[:settings]["show_in_scrum_stats"]=="enabled"
     end
     settings.show_stories_from_subprojects = enabled
+    settings.show_in_scrum_stats = enabled_scrum_stats
 
     if params[:settings][:ignored_versions].present?
       settings.ignored_versions = params[:settings][:ignored_versions].collect(&:to_i)

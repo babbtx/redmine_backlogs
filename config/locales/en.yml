@@ -1,5 +1,5 @@
---- 
-en: 
+---
+en:
   backlogs_active: active
   backlogs_any: any
   backlogs_card_specification: Label types for card printing
@@ -24,10 +24,16 @@ en:
   backlogs_statistics_committed_velocity_stable: Committed velocity is stable across sprints
   backlogs_statistics_sizing_stddev: "Standard deviation on hours vs. points: %{value} hours"
   backlogs_statistics_hours_per_point: "%{value} hours per point on average"
+  backlogs_statistics_spent_hours_per_point: "%{value} hours spent per accepted point on average"
   backlogs_statistics_sprints: Measured over %{value} sprints
   backlogs_statistics_velocity: "Velocity: %{value}"
   backlogs_statistics_velocity_stddev: "Velocity standard deviation: %{value} points"
   backlogs_points_burn_direction: Points burn up/down
+  backlogs_story_follows_task_status: Story follows Task status
+  backlogs_story_follow_task_status_nil: Disabled
+  backlogs_story_follow_task_status_close: Close when all Tasks are closed
+  backlogs_story_follow_task_status_loose: Loosely follow Tasks average done ratio
+  backlogs_story_close_status: "When all Tasks are closed, update Story to:"
   backlogs_product_backlog: Product backlog
   backlogs_sprints: Sprints
   backlogs_story: Story
@@ -39,6 +45,7 @@ en:
   backlogs_burndown_print_height: Burndown print height
   backlogs_auto_assign_task: Auto assign task to current user
   backlogs_include_sat_and_sun: Include Saturday and Sunday in Burndown
+  backlogs_show_redmine_std_header: Show redmine header in backlogs
   button_edit_wiki: Edit wiki page
   comma_delimited_numbers: Comma delimited numbers
   current_open_story_points: "Current open story points:"
@@ -127,7 +134,7 @@ en:
 
   # Version fields
   field_name: "Name"
-  
+
   # Error messages
   error_blank: "cannot be blank"
   error_greater_than_start_date: "cannot be earlier than Start Date"
@@ -168,6 +175,7 @@ en:
   rb_taskboard_card_order: Card print order
   rb_timelog_from_taskboard: Timelog from taskboard
   rb_show_burndown_in_sidebar: Show burndown chart in issues sidebar
+  rb_show_project_name: Show project name in backlogs
   rb_auto_refresh: Auto-refresh backlogs/taskboard (seconds)
   release_create_snapshot_today: Save story point snapshot for today
   release_update_snapshot_today: Update story point snapshot for today
@@ -178,10 +186,10 @@ en:
   use_free_text_if_empty: Use text field instead of dropdown if empty
   warning_reset_sprint: |
     YOU ARE ABOUT TO RESET THIS SPRINT!
-    
+
     Are you sure you want to do this? Resetting the sprint
     will have the following effects on stories and tasks:
-    
+
     * Creation date will be set to the sprint start date
     * ALL modifications to the stories and tasks except notes
        will be DELETED
@@ -193,9 +201,24 @@ en:
   backlogs_new_story_position_bottom: bottom (requires restart)
   backlogs_sharing_support: Backlogs sharing
   backlogs_sharing_enabled: Enable sharing
+  backlogs_sharing_new_sprint: Share new Sprints
+  backlogs_sharing_new_sprint_explanation: Although all possible options are available here, new sprints are shared only according to the users and projects permissions. System shared sprints can only be created by admins, hierarchy and tree shared sprints need permissions on the topmost project.
   backlogs_show_stories_from_subprojects_in_backlog: Show stories from subprojects in backlog
+  backlogs_show_in_scrum_stats: Show project in Scrum statistics
   rb_project_settings_updated: Settings updated
   rb_project_settings_update_error: Error while updating settings
   rb_project_settings_backlog_versions: Backlog version(s)
   rb_project_settings_ignored_versions: Ignore version(s)
-
+  backlogs_set_start_and_duedates_from_sprint: Set story start- and duedate from sprint
+  backlogs_sprint_sort_order: Sort Sprints by start date
+  backlogs_sprint_sort_order_asc: ascending
+  backlogs_sprint_sort_order_desc: descending
+  backlogs_general_settings: General settings
+  backlogs_sprint_card_settings: Card printing
+  backlogs_burndown_settings: Burndown settings
+  backlogs_pblpage_settings: Product backlog page settings
+  backlogs_story_settings: Story and Task settings
+  label_filter_tasks: Filter by user
+  label_filter_tasks_my_tasks: Filter by user - my tasks
+  label_all_tasks: All tasks
+  label_my_tasks: My tasks

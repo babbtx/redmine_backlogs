@@ -20,6 +20,14 @@ if (RB.constants == null) {
     new_story_position: <%= Backlogs.setting[:new_story_position].to_s.to_json.html_safe %>
   };
 
+  RB.constants.locale = {
+    _: function(s) { return RB.constants.locale[s]; },
+    'Filter tasks': "<%= l(:label_filter_tasks)%>",
+    'Filter tasks: my tasks': "<%= l(:label_filter_tasks_my_tasks)%>",
+    'All tasks': "<%= l(:label_all_tasks) %>",
+    'My tasks': "<%= l(:label_my_tasks) %>"
+  };
+
   RB.routes = {
     create_sprint: <%= url_for(:controller => 'rb_sprints', :action => 'create').to_json.html_safe %>,
     update_sprint: <%= url_for(:controller => 'rb_sprints', :action => 'update', :sprint_id => ':id').to_json.html_safe %>,
@@ -35,7 +43,8 @@ if (RB.constants == null) {
 
     show_updated_items: <%= url_for(:controller => 'rb_updated_items', :action => 'show', :project_id => ':id').to_json.html_safe %>,
     show_burndown_chart: <%= url_for(:controller => 'rb_burndown_charts', :action => 'show', :sprint_id => ':id').to_json.html_safe %>,
-    show_burndown_embedded: <%= url_for(:controller => 'rb_burndown_charts', :action => 'embedded', :sprint_id => ':id').to_json.html_safe %>
+    show_burndown_embedded: <%= url_for(:controller => 'rb_burndown_charts', :action => 'embedded', :sprint_id => ':id').to_json.html_safe %>,
+    home: <%= url_for(:home).to_json.html_safe %>
   };
 
   RB.urlFor = function(route_name, options) {
@@ -54,49 +63,13 @@ if (RB.constants == null) {
 <% if @sprint %>
   RB.constants.sprint_id = <%= @sprint.id %>;
   RB.constants.project_id = <%= @sprint.project_id %>;
+  <% if @context == 'taskboard' %>
+  RB.constants.task_states = <%= workflow_transitions(RbTask).to_json.html_safe %>;
+  <% end %>
 <% end %>
 
 <%
   if @context == 'backlogs'
-    default_status = IssueStatus.default
-    default_status = default_status.id.to_s if default_status
-
-    roles = User.current.roles_for_project(@project)
-    transitions = {:states => {}, :transitions => {} , :default => default_status }
-
-    RbStory.trackers.each {|tracker_id|
-      tracker = Tracker.find(tracker_id)
-      tracker_id = tracker_id.to_s
-
-      transitions[:transitions][tracker_id] = {}
-
-      tracker.issue_statuses.each {|status|
-        status_id = status.id.to_s
-
-        transitions[:states][status_id] = {:name => status.name, :closed => (status.is_closed? ? l(:label_closed_issues) + ' ' : '')}
-
-        [[false, false], [true, true], [false, true], [true, false]].each{|creator, assignee|
-          key = "#{creator ? '+' : '-'}c#{assignee ? '+' : '-'}a"
-
-          transitions[:transitions][tracker_id][key] ||= {}
-
-          begin
-            allowed_statues = status.new_statuses_allowed_to(roles, tracker, creator, assignee)
-          rescue #Workaround in order to support redmine 1.1.3
-            allowed_statues = status.new_statuses_allowed_to(roles, tracker)
-          end
-
-          allowed = allowed_statues.collect{|s| s.id.to_s}
-
-          transitions[:transitions][tracker_id][key][:default] ||= allowed[0]
-
-          allowed.unshift(status_id)
-
-          transitions[:transitions][tracker_id][key][status_id] = allowed.compact.uniq
-        }
-      }
-    }
-
 =begin
  project_versions maps all projects to those versions which can receive the projects issues.
  project_versions are used by the js user interface to determine to which backlogs a dragged story can be dropped to.
@@ -117,6 +90,6 @@ if (RB.constants == null) {
   %>
   RB.constants.projects_in_product_backlog = <%= projects_in_product_backlog.to_json.html_safe %>;
   RB.constants.project_versions = <%= project_versions.to_json.html_safe %>;
-  RB.constants.story_states = <%= transitions.to_json.html_safe %>;
+  RB.constants.story_states = <%= workflow_transitions(RbStory).to_json.html_safe %>;
   RB.routes.backlog_menu = <%= url_for(:controller => 'rb_master_backlogs', :action => 'menu', :project_id => @project.identifier, :only_path => true).to_json.html_safe %>;
 <% end %>
